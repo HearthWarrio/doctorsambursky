@@ -11,8 +11,7 @@ import java.time.LocalDateTime;
 public class Appointment {
     public enum Status { PENDING, CONFIRMED, CANCELLED, COMPLETED }
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(optional = false)
@@ -33,5 +32,5 @@ public class Appointment {
     private String paymentId;
 
     @Column(name = "paid_amount")
-    private Integer paidAmount; // в копейках
+    private Integer paidAmount;
 }

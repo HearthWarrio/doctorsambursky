@@ -6,8 +6,11 @@ import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
 @Mapper(componentModel = "spring")
-public class AppointmentMapper {
+public interface AppointmentMapper {
+    /**
+     * Маппим patient.name → patientName.
+     * Остальные поля (id, appointmentTime, status) совпадают по именам.
+     */
     @Mapping(source = "patient.name", target = "patientName")
-    @Mapping(source = "appointmentTime", target = "appointmentTime")
-    AppointmentDTO toDto(Appointment appt);
+    AppointmentDTO toDto(Appointment appointment);
 }

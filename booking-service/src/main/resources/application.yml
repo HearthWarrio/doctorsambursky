@@ -1,0 +1,22 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/doctor_app
+    username: doctor
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+vault:
+  uri: ${VAULT_URI}
+  token: ${VAULT_TOKEN}
+
+tinkoff:
+  terminalKey: ${TINKOFF_TERMINAL_KEY}
+  password:    ${TINKOFF_PASSWORD}

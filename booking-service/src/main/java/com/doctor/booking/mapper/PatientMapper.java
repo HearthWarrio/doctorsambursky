@@ -6,9 +6,9 @@ import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
 @Mapper(componentModel = "spring")
-public class PatientMapper {
-    @Mapping(source = "name",  target = "name")
-    @Mapping(source = "phone", target = "phone")
-    @Mapping(source = "email", target = "email")
+public interface PatientMapper {
+    /**
+     * MapStruct сам подтянет name, phone и email.
+     */
     Patient toEntity(BookingRequest req);
 }

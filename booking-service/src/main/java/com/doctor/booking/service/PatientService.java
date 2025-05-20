@@ -12,8 +12,12 @@ public class PatientService {
 
     public Patient findOrCreate(String name, String phone, String email) {
         return repo.findByPhone(phone)
-                .orElseGet(() -> repo.save(new Patient(){{
-                    setName(name); setPhone(phone); setEmail(email);
-                }}));
+                .orElseGet(() -> {
+                    Patient p = new Patient();
+                    p.setName(name);
+                    p.setPhone(phone);
+                    p.setEmail(email);
+                    return repo.save(p);
+                });
     }
 }
