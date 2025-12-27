@@ -15,7 +15,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.util.List;
 
 @Component
-@RequiredArgsConstructor
 public class RestBookingClient implements BookingClient {
 
     private final RestTemplate rest;

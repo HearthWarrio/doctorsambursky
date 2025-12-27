@@ -40,6 +40,9 @@ public class Appointment {
     @Column(name = "decline_reason")
     private String declineReason;
 
+    @Column(name = "cancel_reason")
+    private String cancelReason;
+
     @Column(name = "reschedule_proposed_time")
     private LocalDateTime rescheduleProposedTime;
 
