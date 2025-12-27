@@ -34,7 +34,6 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/appointments",
                                 "/api/appointments/available",
-                                "/api/payments/callback",
                                 "/api/bot/**"
                         ).permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

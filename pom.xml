@@ -20,7 +20,6 @@
         <spring.boot.version>3.2.0</spring.boot.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>
         <lombok.version>1.18.30</lombok.version>
-        <tinkoff.core.version>1.3.4</tinkoff.core.version>
         <spring.vault.version>3.0.3</spring.vault.version>
         <google.calendar.version>v3-rev411-1.25.0</google.calendar.version>
         <telegram.bots.version>6.5.0</telegram.bots.version>

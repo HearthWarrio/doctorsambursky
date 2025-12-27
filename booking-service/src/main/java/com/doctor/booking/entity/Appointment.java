@@ -31,12 +31,6 @@ public class Appointment {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    @Column(name = "payment_id")
-    private String paymentId;
-
-    @Column(name = "paid_amount")
-    private Integer paidAmount;
-
     @Column(name = "decline_reason")
     private String declineReason;
 

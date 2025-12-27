@@ -50,13 +50,6 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
-        <!-- Tinkoff Core SDK -->
-        <dependency>
-            <groupId>ru.tinkoff.acquiring</groupId>
-            <artifactId>core</artifactId>
-            <version>${tinkoff.core.version}</version>
-        </dependency>
-
         <!-- Spring Vault Core -->
         <dependency>
             <groupId>org.springframework.vault</groupId>
