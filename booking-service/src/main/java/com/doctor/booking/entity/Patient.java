@@ -8,6 +8,7 @@ import lombok.Data;
 @Table(name = "patients")
 @Data
 public class Patient {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -20,7 +21,18 @@ public class Patient {
     @Column(nullable = false, unique = true)
     private String phone;
 
-    @NotBlank
-    @Column(nullable = false, unique = true)
+    @Column(unique = true)
     private String email;
+
+    @Column
+    private String address;
+
+    @Column(name = "telegram_username")
+    private String telegramUsername;
+
+    @Column(name = "whatsapp_number")
+    private String whatsappNumber;
+
+    @Column(name = "telegram_chat_id")
+    private Long telegramChatId;
 }

@@ -9,9 +9,9 @@ import java.time.LocalDateTime;
 @Table(name = "appointments")
 @Data
 public class Appointment {
-    public enum Status { PENDING, CONFIRMED, CANCELLED, COMPLETED }
 
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(optional = false)
@@ -23,14 +23,26 @@ public class Appointment {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private Status status;
+    private AppointmentStatus status;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
 
     @Column(name = "payment_id")
     private String paymentId;
 
     @Column(name = "paid_amount")
     private Integer paidAmount;
+
+    @Column(name = "decline_reason")
+    private String declineReason;
+
+    @Column(name = "reschedule_proposed_time")
+    private LocalDateTime rescheduleProposedTime;
+
+    @Column(name = "doctor_decision_deadline_at")
+    private LocalDateTime doctorDecisionDeadlineAt;
 }
