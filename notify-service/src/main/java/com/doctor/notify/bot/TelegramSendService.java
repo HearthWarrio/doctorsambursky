@@ -37,6 +37,14 @@ public class TelegramSendService {
         }
     }
 
+    public void sendDoctorApproval(Long doctorChatId, Long appointmentId, String text) {
+        sendText(doctorChatId, text, KeyboardFactory.doctorApproval(appointmentId));
+    }
+
+    public void sendCancelButton(Long doctorChatId, Long appointmentId, String text) {
+        sendText(doctorChatId, text, KeyboardFactory.cancelAppointment(appointmentId));
+    }
+
     public void answerCallback(String callbackId) {
         AnswerCallbackQuery a = new AnswerCallbackQuery();
         a.setCallbackQueryId(callbackId);
@@ -45,9 +53,5 @@ public class TelegramSendService {
         } catch (TelegramApiException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    public void sendDoctorApproval(Long doctorChatId, Long appointmentId, String text) {
-        sendText(doctorChatId, text, KeyboardFactory.doctorApproval(appointmentId));
     }
 }
