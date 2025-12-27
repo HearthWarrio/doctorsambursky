@@ -9,7 +9,6 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
@@ -20,11 +19,13 @@ class RestBookingClientTest {
     @Test
     void mapConflictToSlotUnavailable() {
         RestTemplate rest = Mockito.mock(RestTemplate.class);
-        RestBookingClient c = new RestBookingClient(rest);
 
-        ReflectionTestUtils.setField(c, "baseUrl", "http://localhost:8081");
-        ReflectionTestUtils.setField(c, "internalToken", "test-token");
-        ReflectionTestUtils.setField(c, "internalHeader", "X-Internal-Token");
+        RestBookingClient c = new RestBookingClient(
+                rest,
+                "http://localhost:8081",
+                "token",
+                "X-Internal-Token"
+        );
 
         Mockito.doThrow(HttpClientErrorException.create(
                         HttpStatus.CONFLICT,
@@ -41,9 +42,6 @@ class RestBookingClientTest {
                         Mockito.eq(AppointmentDTO.class)
                 );
 
-        Assertions.assertThrows(SlotUnavailableException.class, () -> {
-            BotCreateAppointmentRequestDTO dto = new BotCreateAppointmentRequestDTO();
-            c.createAppointment(dto);
-        });
+        Assertions.assertThrows(SlotUnavailableException.class, () -> c.createAppointment(new BotCreateAppointmentRequestDTO()));
     }
 }

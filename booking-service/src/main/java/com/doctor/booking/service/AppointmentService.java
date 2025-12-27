@@ -21,10 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -318,5 +315,53 @@ public class AppointmentService {
         Appointment a = apptRepo.findById(appointmentId)
                 .orElseThrow(() -> new AppointmentNotFoundException("Запись не найдена"));
         return mapper.toDto(a);
+    }
+
+    public List<AppointmentDTO> getSchedule(LocalDateTime from, LocalDateTime to) {
+        Set<AppointmentStatus> statuses = EnumSet.of(
+                AppointmentStatus.PENDING_DOCTOR,
+                AppointmentStatus.CONFIRMED,
+                AppointmentStatus.RESCHEDULE_REQUESTED,
+                AppointmentStatus.RESCHEDULE_PROPOSED
+        );
+
+        List<Appointment> items = new ArrayList<>();
+        items.addAll(apptRepo.findByAppointmentTimeBetweenAndStatusIn(from, to, statuses));
+        items.addAll(apptRepo.findByRescheduleProposedTimeBetweenAndStatus(from, to, AppointmentStatus.RESCHEDULE_PROPOSED));
+
+        Set<Long> seen = new HashSet<>();
+        List<AppointmentDTO> out = new ArrayList<>();
+
+        for (Appointment a : items) {
+            if (a != null && a.getId() != null && seen.add(a.getId())) {
+                out.add(mapper.toDto(a));
+            }
+        }
+
+        return out;
+    }
+
+    public AppointmentDTO cancelByDoctor(long id, String reason) {
+        Appointment a = apptRepo.findById(id)
+                .orElseThrow(() -> new AppointmentNotFoundException("Appointment not found: id=" + id));
+
+        AppointmentStatus st = a.getStatus();
+        if (st == AppointmentStatus.DECLINED || st == AppointmentStatus.CANCELLED || st == AppointmentStatus.COMPLETED) {
+            throw new InvalidAppointmentStateException("Appointment cannot be cancelled in status: " + st);
+        }
+
+        a.setCancelReason(reason);
+        a.setStatus(AppointmentStatus.CANCELLED);
+
+        Appointment saved = apptRepo.save(a);
+
+        if (saved.getPatient() != null && saved.getPatient().getTelegramChatId() != null) {
+            SendMessageNotificationDTO msg = new SendMessageNotificationDTO();
+            msg.setChatId(saved.getPatient().getTelegramChatId());
+            msg.setText("Запись #" + saved.getId() + " отменена врачом." + (reason == null || reason.isBlank() ? "" : " Причина: " + reason));
+            notifyClient.sendMessage(msg);
+        }
+
+        return mapper.toDto(saved);
     }
 }

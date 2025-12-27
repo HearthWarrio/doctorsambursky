@@ -29,4 +29,6 @@ public class AppointmentDTO {
 
     private String paymentId;
     private Integer paidAmount;
+
+    private String cancelReason;
 }
