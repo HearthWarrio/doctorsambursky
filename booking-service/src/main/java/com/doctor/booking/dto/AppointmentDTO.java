@@ -27,8 +27,5 @@ public class AppointmentDTO {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
-    private String paymentId;
-    private Integer paidAmount;
-
     private String cancelReason;
 }

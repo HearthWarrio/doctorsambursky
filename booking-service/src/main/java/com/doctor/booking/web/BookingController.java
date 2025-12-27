@@ -3,9 +3,7 @@ package com.doctor.booking.web;
 import com.doctor.booking.dto.AppointmentDTO;
 import com.doctor.booking.dto.AvailableSlotDTO;
 import com.doctor.booking.dto.BookingRequest;
-import com.doctor.booking.dto.PaymentResponseDTO;
 import com.doctor.booking.service.AppointmentService;
-import com.doctor.booking.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -24,7 +22,7 @@ public class BookingController {
     private final AppointmentService svc;
 
     @PostMapping("/appointments")
-    public ResponseEntity<PaymentResponseDTO> book(@Valid @RequestBody BookingRequest req) {
+    public ResponseEntity<AppointmentDTO> book(@Valid @RequestBody BookingRequest req) {
         return ResponseEntity.ok(svc.book(req));
     }
 

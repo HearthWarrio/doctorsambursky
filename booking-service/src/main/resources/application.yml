@@ -17,10 +17,6 @@ vault:
   uri: ${VAULT_URI}
   token: ${VAULT_TOKEN}
 
-tinkoff:
-  terminalKey: ${TINKOFF_TERMINAL_KEY}
-  password: ${TINKOFF_PASSWORD}
-
 internal:
   auth:
     token: ${INTERNAL_AUTH_TOKEN}

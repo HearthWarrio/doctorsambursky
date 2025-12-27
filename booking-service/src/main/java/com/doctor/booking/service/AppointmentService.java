@@ -29,13 +29,11 @@ import java.util.stream.Collectors;
 public class AppointmentService {
 
     private static final Set<AppointmentStatus> BUSY_STATUSES = EnumSet.of(
-            AppointmentStatus.PENDING,
             AppointmentStatus.PENDING_DOCTOR,
             AppointmentStatus.CONFIRMED
     );
 
     private final PatientService patientService;
-    private final PaymentService paymentService;
     private final AppointmentRepository apptRepo;
     private final AppointmentMapper mapper;
     private final NotifyClient notifyClient;
@@ -46,31 +44,35 @@ public class AppointmentService {
     @Value("${booking.doctorDecisionTimeoutMinutes:120}")
     private int doctorDecisionTimeoutMinutes;
 
+    /**
+     * Web booking (no payments): patient proposes a slot, doctor decides via MedBrat.
+     */
     @Transactional
-    public PaymentResponseDTO book(BookingRequest req) {
+    public AppointmentDTO book(BookingRequest req) {
         Patient p = patientService.findOrCreate(req.getName(), req.getPhone(), req.getEmail());
-        if (apptRepo.existsByAppointmentTimeAndStatusIn(req.getAppointmentTime(), BUSY_STATUSES)) {
+
+        LocalDateTime time = req.getAppointmentTime();
+        if (apptRepo.existsByAppointmentTimeAndStatusIn(time, BUSY_STATUSES)
+                || apptRepo.existsByRescheduleProposedTimeAndStatus(time, AppointmentStatus.RESCHEDULE_PROPOSED)) {
             throw new SlotUnavailableException("Время занято");
         }
 
         Appointment a = new Appointment();
         a.setPatient(p);
-        a.setAppointmentTime(req.getAppointmentTime());
-        a.setStatus(AppointmentStatus.PENDING);
+        a.setAppointmentTime(time);
+        a.setStatus(AppointmentStatus.PENDING_DOCTOR);
         a.setCreatedAt(LocalDateTime.now());
         a.setUpdatedAt(LocalDateTime.now());
         a.setDoctorDecisionDeadlineAt(LocalDateTime.now().plusMinutes(doctorDecisionTimeoutMinutes));
         a = apptRepo.save(a);
 
-        var init = paymentService.initPayment(a.getId(), 1000 * 100);
-        a.setPaymentId(init.getPaymentId());
-        a.setUpdatedAt(LocalDateTime.now());
-        apptRepo.save(a);
+        DoctorApprovalNotificationDTO doc = new DoctorApprovalNotificationDTO();
+        doc.setDoctorChatId(doctorChatId);
+        doc.setAppointmentId(a.getId());
+        doc.setText("Пациент " + p.getName() + " хочет записаться на " + DateTimeUtil.format(a.getAppointmentTime()) + ". Подтвердить?");
+        notifyClient.sendDoctorApproval(doc);
 
-        var dto = new PaymentResponseDTO();
-        dto.setAppointmentId(a.getId());
-        dto.setPaymentUrl(init.getPaymentUrl());
-        return dto;
+        return mapper.toDto(a);
     }
 
     @Transactional(readOnly = true)
@@ -102,36 +104,6 @@ public class AppointmentService {
                 .collect(Collectors.toList());
     }
 
-    @Transactional
-    public void confirmPayment(String paymentId) {
-        apptRepo.findByPaymentId(paymentId).ifPresent(a -> {
-            a.setStatus(AppointmentStatus.CONFIRMED);
-            a.setPaidAmount(1000 * 100);
-            a.setUpdatedAt(LocalDateTime.now());
-            apptRepo.save(a);
-        });
-    }
-
-    @Transactional
-    public void cancelByPaymentId(String paymentId) {
-        apptRepo.findByPaymentId(paymentId).ifPresent(a -> {
-            a.setStatus(AppointmentStatus.CANCELLED);
-            a.setUpdatedAt(LocalDateTime.now());
-            apptRepo.save(a);
-        });
-    }
-
-    @Scheduled(fixedDelay = 5 * 60 * 1000)
-    @Transactional
-    public void cancelUnpaid() {
-        var cutoff = LocalDateTime.now().minusMinutes(15);
-        apptRepo.findByStatusAndCreatedAtBefore(AppointmentStatus.PENDING, cutoff).forEach(a -> {
-            a.setStatus(AppointmentStatus.CANCELLED);
-            a.setUpdatedAt(LocalDateTime.now());
-            apptRepo.save(a);
-        });
-    }
-
     @Scheduled(fixedDelay = 60 * 1000)
     @Transactional
     public void declineIfDoctorSilent() {
@@ -142,10 +114,8 @@ public class AppointmentService {
             a.setUpdatedAt(now);
             apptRepo.save(a);
 
-            var msg = new SendMessageNotificationDTO();
-            msg.setChatId(a.getPatient().getTelegramChatId());
-            msg.setText("Запрос на запись " + DateTimeUtil.format(a.getAppointmentTime()) + " отклонён: врач не ответил вовремя.");
-            notifyClient.sendMessage(msg);
+            sendToPatientIfTelegramKnown(a,
+                    "Запрос на запись " + DateTimeUtil.format(a.getAppointmentTime()) + " отклонён: врач не ответил вовремя.");
         });
     }
 
@@ -210,10 +180,8 @@ public class AppointmentService {
             a.setUpdatedAt(LocalDateTime.now());
             apptRepo.save(a);
 
-            var msg = new SendMessageNotificationDTO();
-            msg.setChatId(a.getPatient().getTelegramChatId());
-            msg.setText("Запрос на запись " + DateTimeUtil.format(a.getAppointmentTime()) + " отклонён: истёк срок подтверждения.");
-            notifyClient.sendMessage(msg);
+            sendToPatientIfTelegramKnown(a,
+                    "Запрос на запись " + DateTimeUtil.format(a.getAppointmentTime()) + " отклонён: истёк срок подтверждения.");
 
             throw new InvalidAppointmentStateException("Истёк срок подтверждения");
         }
@@ -226,10 +194,8 @@ public class AppointmentService {
                 a.setUpdatedAt(LocalDateTime.now());
                 apptRepo.save(a);
 
-                var msg = new SendMessageNotificationDTO();
-                msg.setChatId(a.getPatient().getTelegramChatId());
-                msg.setText("Запись подтверждена. Дата и время: " + DateTimeUtil.format(a.getAppointmentTime()));
-                notifyClient.sendMessage(msg);
+                sendToPatientIfTelegramKnown(a,
+                        "Запись подтверждена. Дата и время: " + DateTimeUtil.format(a.getAppointmentTime()));
             }
             case DECLINE -> {
                 a.setStatus(AppointmentStatus.DECLINED);
@@ -237,10 +203,8 @@ public class AppointmentService {
                 a.setUpdatedAt(LocalDateTime.now());
                 apptRepo.save(a);
 
-                var msg = new SendMessageNotificationDTO();
-                msg.setChatId(a.getPatient().getTelegramChatId());
-                msg.setText("Запись отклонена. Причина: " + a.getDeclineReason());
-                notifyClient.sendMessage(msg);
+                sendToPatientIfTelegramKnown(a,
+                        "Запись отклонена. Причина: " + a.getDeclineReason());
             }
             case RESCHEDULE -> {
                 if (req.getProposedTime() != null && !req.getProposedTime().isBlank()) {
@@ -256,20 +220,17 @@ public class AppointmentService {
                     a.setUpdatedAt(LocalDateTime.now());
                     apptRepo.save(a);
 
-                    var msg = new SendMessageNotificationDTO();
-                    msg.setChatId(a.getPatient().getTelegramChatId());
-                    msg.setText("Врач предлагает другое время: " + DateTimeUtil.format(proposed) + ". Если не подходит – пришлите другое в формате " + DateTimeFormatUtil.BOT_PATTERN);
-                    notifyClient.sendMessage(msg);
+                    sendToPatientIfTelegramKnown(a,
+                            "Врач предлагает другое время: " + DateTimeUtil.format(proposed)
+                                    + ". Если не подходит – пришлите другое в формате " + DateTimeFormatUtil.BOT_PATTERN);
                 } else {
                     a.setStatus(AppointmentStatus.RESCHEDULE_REQUESTED);
                     a.setRescheduleProposedTime(null);
                     a.setUpdatedAt(LocalDateTime.now());
                     apptRepo.save(a);
 
-                    var msg = new SendMessageNotificationDTO();
-                    msg.setChatId(a.getPatient().getTelegramChatId());
-                    msg.setText("Врач просит выбрать другое время. Пришлите в формате " + DateTimeFormatUtil.BOT_PATTERN);
-                    notifyClient.sendMessage(msg);
+                    sendToPatientIfTelegramKnown(a,
+                            "Врач просит выбрать другое время. Пришлите в формате " + DateTimeFormatUtil.BOT_PATTERN);
                 }
             }
         }
@@ -355,13 +316,20 @@ public class AppointmentService {
 
         Appointment saved = apptRepo.save(a);
 
-        if (saved.getPatient() != null && saved.getPatient().getTelegramChatId() != null) {
-            SendMessageNotificationDTO msg = new SendMessageNotificationDTO();
-            msg.setChatId(saved.getPatient().getTelegramChatId());
-            msg.setText("Запись #" + saved.getId() + " отменена врачом." + (reason == null || reason.isBlank() ? "" : " Причина: " + reason));
-            notifyClient.sendMessage(msg);
-        }
+        sendToPatientIfTelegramKnown(saved,
+                "Запись #" + saved.getId() + " отменена врачом."
+                        + (reason == null || reason.isBlank() ? "" : " Причина: " + reason));
 
         return mapper.toDto(saved);
+    }
+
+    private void sendToPatientIfTelegramKnown(Appointment a, String text) {
+        if (a == null || a.getPatient() == null || a.getPatient().getTelegramChatId() == null) {
+            return;
+        }
+        SendMessageNotificationDTO msg = new SendMessageNotificationDTO();
+        msg.setChatId(a.getPatient().getTelegramChatId());
+        msg.setText(text);
+        notifyClient.sendMessage(msg);
     }
 }
