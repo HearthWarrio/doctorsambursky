@@ -1,6 +1,8 @@
 package com.doctor.booking.service;
 
 import com.doctor.booking.dto.PaymentCallbackDTO;
+import com.doctor.booking.entity.AppointmentStatus;
+import com.doctor.booking.repository.AppointmentRepository;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -10,19 +12,20 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class PaymentService {
+
     private final RestTemplate rest;
-    private final AppointmentService appointmentService;
+    private final AppointmentRepository appointmentRepository;
 
     @Value("${tinkoff.terminalKey}") private String terminalKey;
     @Value("${tinkoff.password}")    private String password;
 
-    /** Ответ от Tinkoff Init */
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
@@ -35,9 +38,6 @@ public class PaymentService {
         private String paymentUrl;
     }
 
-    /**
-     * Инициация предоплаты.
-     */
     public InitResponse initPayment(Long orderId, int amountKopecks) {
         Map<String, Object> req = new HashMap<>();
         req.put("TerminalKey", terminalKey);
@@ -46,22 +46,15 @@ public class PaymentService {
         req.put("OrderId", orderId.toString());
         req.put("Description", "Предоплата за приём");
         req.put("SuccessURL", "https://doctorsambursky.ru/success");
-        req.put("FailURL",    "https://doctorsambursky.ru/fail");
+        req.put("FailURL", "https://doctorsambursky.ru/fail");
 
-        InitResponse resp = rest.postForObject(
-                "https://securepay.tinkoff.ru/v2/Init",
-                req,
-                InitResponse.class
-        );
+        InitResponse resp = rest.postForObject("https://securepay.tinkoff.ru/v2/Init", req, InitResponse.class);
         if (resp == null || !resp.isSuccess()) {
             throw new IllegalStateException("Ошибка инициализации платежа");
         }
         return resp;
     }
 
-    /**
-     * Возврат средств.
-     */
     public void refundPayment(String paymentId, int amountKopecks) {
         Map<String, Object> req = new HashMap<>();
         req.put("TerminalKey", terminalKey);
@@ -69,23 +62,22 @@ public class PaymentService {
         req.put("Amount", amountKopecks);
         req.put("Password", password);
 
-        rest.postForObject(
-                "https://securepay.tinkoff.ru/v2/Cancel",
-                req,
-                Map.class
-        );
+        rest.postForObject("https://securepay.tinkoff.ru/v2/Cancel", req, Map.class);
     }
 
-    /**
-     * Обработка колбэка от Tinkoff.
-     */
     public void handleCallback(PaymentCallbackDTO dto) {
-        if ("CONFIRMED".equalsIgnoreCase(dto.getStatus())) {
-            appointmentService.confirmPayment(dto.getPaymentId());
-        } else if ("CANCELED".equalsIgnoreCase(dto.getStatus())
-                || "REJECTED".equalsIgnoreCase(dto.getStatus())) {
-            appointmentService.cancelByPaymentId(dto.getPaymentId());
-            refundPayment(dto.getPaymentId(), 1000 * 100);
-        }
+        appointmentRepository.findByPaymentId(dto.getPaymentId()).ifPresent(a -> {
+            if ("CONFIRMED".equalsIgnoreCase(dto.getStatus())) {
+                a.setStatus(AppointmentStatus.CONFIRMED);
+                a.setPaidAmount(1000 * 100);
+                a.setUpdatedAt(LocalDateTime.now());
+                appointmentRepository.save(a);
+            } else if ("CANCELED".equalsIgnoreCase(dto.getStatus()) || "REJECTED".equalsIgnoreCase(dto.getStatus())) {
+                a.setStatus(AppointmentStatus.CANCELLED);
+                a.setUpdatedAt(LocalDateTime.now());
+                appointmentRepository.save(a);
+                refundPayment(dto.getPaymentId(), 1000 * 100);
+            }
+        });
     }
 }

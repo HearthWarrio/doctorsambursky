@@ -1,0 +1,23 @@
+server:
+  port: 8083
+
+vault:
+  uri: ${VAULT_URI}
+  token: ${VAULT_TOKEN}
+  path: ${VAULT_PATH:secret/application}
+
+internal:
+  auth:
+    token: ${INTERNAL_AUTH_TOKEN}
+    header: X-Internal-Token
+
+booking:
+  base-url: ${BOOKING_BASE_URL:http://localhost:8081}
+
+telegram:
+  doctor:
+    chat-id: ${TELEGRAM_DOCTOR_CHAT_ID}
+
+telegram-bot:
+  username: ${TELEGRAM_BOT_USERNAME:}
+  token: ${TELEGRAM_BOT_TOKEN:}
