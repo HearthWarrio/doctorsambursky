@@ -25,4 +25,13 @@ public class KeyboardFactory {
         ));
         return kb;
     }
+
+    public static InlineKeyboardMarkup cancelAppointment(long appointmentId) {
+        InlineKeyboardButton c = new InlineKeyboardButton("❌ Отменить");
+        c.setCallbackData("APPT_CANCEL:" + appointmentId);
+
+        InlineKeyboardMarkup kb = new InlineKeyboardMarkup();
+        kb.setKeyboard(List.of(List.of(c)));
+        return kb;
+    }
 }
