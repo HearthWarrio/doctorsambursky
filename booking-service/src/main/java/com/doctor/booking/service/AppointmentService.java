@@ -57,20 +57,36 @@ public class AppointmentService {
             throw new SlotUnavailableException("Время занято");
         }
 
+        LocalDateTime now = LocalDateTime.now();
+
         Appointment a = new Appointment();
         a.setPatient(p);
         a.setAppointmentTime(time);
         a.setStatus(AppointmentStatus.PENDING_DOCTOR);
-        a.setCreatedAt(LocalDateTime.now());
-        a.setUpdatedAt(LocalDateTime.now());
-        a.setDoctorDecisionDeadlineAt(LocalDateTime.now().plusMinutes(doctorDecisionTimeoutMinutes));
+        a.setCreatedAt(now);
+        a.setUpdatedAt(now);
+        a.setDoctorDecisionDeadlineAt(now.plusMinutes(doctorDecisionTimeoutMinutes));
+        a.setDoctorNotified(false);
+        a.setTimeoutDeclineNotified(false);
+
         a = apptRepo.save(a);
 
-        DoctorApprovalNotificationDTO doc = new DoctorApprovalNotificationDTO();
-        doc.setDoctorChatId(doctorChatId);
-        doc.setAppointmentId(a.getId());
-        doc.setText("Пациент " + p.getName() + " хочет записаться на " + DateTimeUtil.format(a.getAppointmentTime()) + ". Подтвердить?");
-        notifyClient.sendDoctorApproval(doc);
+        boolean sent = false;
+        if (doctorChatId != null) {
+            sent = sendDoctorApprovalWithRetry(
+                    a.getId(),
+                    doctorChatId,
+                    "Пациент " + p.getName() + " хочет записаться на " + DateTimeUtil.format(a.getAppointmentTime()) + ". Подтвердить?"
+            );
+        }
+
+        if (sent) {
+            LocalDateTime sentAt = LocalDateTime.now();
+            a.setDoctorNotified(true);
+            a.setDoctorNotifiedAt(sentAt);
+            a.setUpdatedAt(sentAt);
+            a = apptRepo.save(a);
+        }
 
         return mapper.toDto(a);
     }
@@ -107,15 +123,38 @@ public class AppointmentService {
     @Scheduled(fixedDelay = 60 * 1000)
     @Transactional
     public void declineIfDoctorSilent() {
-        var now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now();
+
         apptRepo.findByStatusAndDoctorDecisionDeadlineAtBefore(AppointmentStatus.PENDING_DOCTOR, now).forEach(a -> {
             a.setStatus(AppointmentStatus.DECLINED);
             a.setDeclineReason("Врач не ответил в течение 2 часов");
             a.setUpdatedAt(now);
-            apptRepo.save(a);
+            a = apptRepo.save(a);
 
-            sendToPatientIfTelegramKnown(a,
-                    "Запрос на запись " + DateTimeUtil.format(a.getAppointmentTime()) + " отклонён: врач не ответил вовремя.");
+            Long chatId = null;
+            if (a.getPatient() != null) {
+                chatId = a.getPatient().getTelegramChatId();
+            }
+
+            if (chatId == null) {
+                a.setTimeoutDeclineNotified(true);
+                a.setTimeoutDeclineNotifiedAt(now);
+                a.setUpdatedAt(now);
+                apptRepo.save(a);
+                return;
+            }
+
+            boolean sent = sendPatientMessageWithRetry(
+                    a,
+                    "Запрос на запись " + DateTimeUtil.format(a.getAppointmentTime()) + " отклонён: врач не ответил вовремя."
+            );
+
+            if (sent) {
+                a.setTimeoutDeclineNotified(true);
+                a.setTimeoutDeclineNotifiedAt(now);
+                a.setUpdatedAt(now);
+                apptRepo.save(a);
+            }
         });
     }
 
@@ -130,7 +169,7 @@ public class AppointmentService {
 
     @Transactional
     public AppointmentDTO createFromBot(BotCreateAppointmentRequestDTO req) {
-        var time = DateTimeFormatUtil.parseBotDateTime(req.getRequestedTime());
+        LocalDateTime time = DateTimeFormatUtil.parseBotDateTime(req.getRequestedTime());
 
         if (apptRepo.existsByAppointmentTimeAndStatusIn(time, BUSY_STATUSES)
                 || apptRepo.existsByRescheduleProposedTimeAndStatus(time, AppointmentStatus.RESCHEDULE_PROPOSED)) {
@@ -147,20 +186,36 @@ public class AppointmentService {
                 req.getEmail()
         );
 
+        LocalDateTime now = LocalDateTime.now();
+
         Appointment a = new Appointment();
         a.setPatient(patient);
         a.setAppointmentTime(time);
         a.setStatus(AppointmentStatus.PENDING_DOCTOR);
-        a.setCreatedAt(LocalDateTime.now());
-        a.setUpdatedAt(LocalDateTime.now());
-        a.setDoctorDecisionDeadlineAt(LocalDateTime.now().plusMinutes(doctorDecisionTimeoutMinutes));
+        a.setCreatedAt(now);
+        a.setUpdatedAt(now);
+        a.setDoctorDecisionDeadlineAt(now.plusMinutes(doctorDecisionTimeoutMinutes));
+        a.setDoctorNotified(false);
+        a.setTimeoutDeclineNotified(false);
+
         a = apptRepo.save(a);
 
-        var doc = new DoctorApprovalNotificationDTO();
-        doc.setDoctorChatId(doctorChatId);
-        doc.setAppointmentId(a.getId());
-        doc.setText("Пациент " + patient.getName() + " хочет записаться на " + DateTimeUtil.format(a.getAppointmentTime()) + ". Подтвердить?");
-        notifyClient.sendDoctorApproval(doc);
+        boolean sent = false;
+        if (doctorChatId != null) {
+            sent = sendDoctorApprovalWithRetry(
+                    a.getId(),
+                    doctorChatId,
+                    "Пациент " + patient.getName() + " хочет записаться на " + DateTimeUtil.format(a.getAppointmentTime()) + ". Подтвердить?"
+            );
+        }
+
+        if (sent) {
+            LocalDateTime sentAt = LocalDateTime.now();
+            a.setDoctorNotified(true);
+            a.setDoctorNotifiedAt(sentAt);
+            a.setUpdatedAt(sentAt);
+            a = apptRepo.save(a);
+        }
 
         return mapper.toDto(a);
     }
@@ -304,11 +359,11 @@ public class AppointmentService {
 
     public AppointmentDTO cancelByDoctor(long id, String reason) {
         Appointment a = apptRepo.findById(id)
-                .orElseThrow(() -> new AppointmentNotFoundException("Appointment not found: id=" + id));
+                .orElseThrow(() -> new AppointmentNotFoundException("Запись не найдена: id=" + id));
 
         AppointmentStatus st = a.getStatus();
         if (st == AppointmentStatus.DECLINED || st == AppointmentStatus.CANCELLED || st == AppointmentStatus.COMPLETED) {
-            throw new InvalidAppointmentStateException("Appointment cannot be cancelled in status: " + st);
+            throw new InvalidAppointmentStateException("Нельзя отменить запись в статусе: " + st);
         }
 
         a.setCancelReason(reason);
@@ -316,9 +371,13 @@ public class AppointmentService {
 
         Appointment saved = apptRepo.save(a);
 
-        sendToPatientIfTelegramKnown(saved,
-                "Запись #" + saved.getId() + " отменена врачом."
-                        + (reason == null || reason.isBlank() ? "" : " Причина: " + reason));
+        if (saved.getPatient() != null && saved.getPatient().getTelegramChatId() != null) {
+            SendMessageNotificationDTO msg = new SendMessageNotificationDTO();
+            msg.setChatId(saved.getPatient().getTelegramChatId());
+            msg.setText("Запись #" + saved.getId() + " отменена врачом."
+                    + (reason == null || reason.isBlank() ? "" : " Причина: " + reason));
+            notifyClient.sendMessage(msg);
+        }
 
         return mapper.toDto(saved);
     }
@@ -332,4 +391,153 @@ public class AppointmentService {
         msg.setText(text);
         notifyClient.sendMessage(msg);
     }
+
+    @Scheduled(fixedDelay = 60 * 1000)
+    @Transactional
+    public void sendPatientReminders() {
+        LocalDateTime now = LocalDateTime.now();
+
+        LocalDateTime w24From = now.plusHours(24).minusMinutes(20);
+        LocalDateTime w24To = now.plusHours(24).plusMinutes(20);
+
+        LocalDateTime w2From = now.plusHours(2).minusMinutes(10);
+        LocalDateTime w2To = now.plusHours(2).plusMinutes(10);
+
+        List<Appointment> due24 = apptRepo.findByStatusAndAppointmentTimeBetweenAndReminder24SentAtIsNull(
+                AppointmentStatus.CONFIRMED, w24From, w24To
+        );
+
+        for (Appointment a : due24) {
+            Long chatId = (a.getPatient() == null) ? null : a.getPatient().getTelegramChatId();
+
+            if (chatId == null) {
+                a.setReminder24SentAt(now);
+                a.setUpdatedAt(now);
+                apptRepo.save(a);
+                continue;
+            }
+
+            try {
+                SendMessageNotificationDTO msg = new SendMessageNotificationDTO();
+                msg.setChatId(chatId);
+                msg.setText("Напоминание: у вас приём " + DateTimeUtil.format(a.getAppointmentTime()) + " (примерно через 24 часа).");
+                notifyClient.sendMessage(msg);
+
+                a.setReminder24SentAt(now);
+                a.setUpdatedAt(now);
+                apptRepo.save(a);
+            } catch (Exception ignored) {
+
+            }
+        }
+
+        List<Appointment> due2 = apptRepo.findByStatusAndAppointmentTimeBetweenAndReminder2hSentAtIsNull(
+                AppointmentStatus.CONFIRMED, w2From, w2To
+        );
+
+        for (Appointment a : due2) {
+            Long chatId = (a.getPatient() == null) ? null : a.getPatient().getTelegramChatId();
+
+            if (chatId == null) {
+                a.setReminder2hSentAt(now);
+                a.setUpdatedAt(now);
+                apptRepo.save(a);
+                continue;
+            }
+
+            try {
+                SendMessageNotificationDTO msg = new SendMessageNotificationDTO();
+                msg.setChatId(chatId);
+                msg.setText("Напоминание: у вас приём " + DateTimeUtil.format(a.getAppointmentTime()) + " (примерно через 2 часа).");
+                notifyClient.sendMessage(msg);
+
+                a.setReminder2hSentAt(now);
+                a.setUpdatedAt(now);
+                apptRepo.save(a);
+            } catch (Exception ignored) {
+
+            }
+        }
+    }
+
+    private boolean sendDoctorApprovalWithRetry(Long appointmentId, Long doctorChatId, String text) {
+        DoctorApprovalNotificationDTO doc = new DoctorApprovalNotificationDTO();
+        doc.setDoctorChatId(doctorChatId);
+        doc.setAppointmentId(appointmentId);
+        doc.setText(text);
+
+        for (int i = 0; i < 3; i++) {
+            try {
+                notifyClient.sendDoctorApproval(doc);
+                return true;
+            } catch (Exception ignored) {
+            }
+        }
+        return false;
+    }
+
+    private boolean sendPatientMessageWithRetry(Appointment a, String text) {
+        if (a == null || a.getPatient() == null || a.getPatient().getTelegramChatId() == null) {
+            return false;
+        }
+
+        SendMessageNotificationDTO msg = new SendMessageNotificationDTO();
+        msg.setChatId(a.getPatient().getTelegramChatId());
+        msg.setText(text);
+
+        for (int i = 0; i < 3; i++) {
+            try {
+                notifyClient.sendMessage(msg);
+                return true;
+            } catch (Exception ignored) {
+            }
+        }
+        return false;
+    }
+
+    @Scheduled(fixedDelay = 60 * 1000)
+    @Transactional
+    public void retryUndeliveredDoctorApprovals() {
+        LocalDateTime now = LocalDateTime.now();
+        List<Appointment> pending = apptRepo.findByStatusAndDoctorNotifiedIsFalseAndDoctorDecisionDeadlineAtAfter(
+                AppointmentStatus.PENDING_DOCTOR,
+                now
+        );
+
+        for (Appointment a : pending) {
+            boolean sent = sendDoctorApprovalWithRetry(a.getId(), doctorChatId,
+                    "Пациент " + a.getPatient().getName() + " хочет записаться на " + DateTimeUtil.format(a.getAppointmentTime()) + ". Подтвердить?");
+
+            if (sent) {
+                a.setDoctorNotified(true);
+                a.setDoctorNotifiedAt(now);
+                a.setUpdatedAt(now);
+                apptRepo.save(a);
+            }
+        }
+    }
+
+    @Scheduled(fixedDelay = 60 * 1000)
+    @Transactional
+    public void retryUndeliveredTimeoutDeclines() {
+        String reason = "Врач не ответил в течение 2 часов";
+        List<Appointment> declined = apptRepo.findByStatusAndTimeoutDeclineNotifiedIsFalseAndDeclineReason(
+                AppointmentStatus.DECLINED,
+                reason
+        );
+
+        LocalDateTime now = LocalDateTime.now();
+        for (Appointment a : declined) {
+            boolean sent = sendPatientMessageWithRetry(a,
+                    "Запрос на запись " + DateTimeUtil.format(a.getAppointmentTime()) + " отклонён: врач не ответил вовремя.");
+
+            if (sent) {
+                a.setTimeoutDeclineNotified(true);
+                a.setTimeoutDeclineNotifiedAt(now);
+                a.setUpdatedAt(now);
+                apptRepo.save(a);
+            }
+        }
+    }
+
 }

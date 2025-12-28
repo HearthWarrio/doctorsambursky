@@ -19,4 +19,26 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
     List<Appointment> findByAppointmentTimeBetweenAndStatusIn(LocalDateTime start, LocalDateTime end, Collection<AppointmentStatus> statuses);
 
     List<Appointment> findByRescheduleProposedTimeBetweenAndStatus(LocalDateTime start, LocalDateTime end, AppointmentStatus status);
+
+    List<Appointment> findByStatusAndAppointmentTimeBetweenAndReminder24SentAtIsNull(
+            AppointmentStatus status,
+            LocalDateTime from,
+            LocalDateTime to
+    );
+
+    List<Appointment> findByStatusAndAppointmentTimeBetweenAndReminder2hSentAtIsNull(
+            AppointmentStatus status,
+            LocalDateTime from,
+            LocalDateTime to
+    );
+
+    List<Appointment> findByStatusAndDoctorNotifiedIsFalseAndDoctorDecisionDeadlineAtAfter(
+            AppointmentStatus status,
+            LocalDateTime now
+    );
+
+    List<Appointment> findByStatusAndTimeoutDeclineNotifiedIsFalseAndDeclineReason(
+            AppointmentStatus status,
+            String declineReason
+    );
 }

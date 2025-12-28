@@ -12,8 +12,7 @@ import org.telegram.telegrambots.meta.api.objects.*;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -57,42 +56,50 @@ public class BotFlowService {
         String data = cq.getData();
         if (data == null) return;
 
-        if (data.startsWith("APPT_CONFIRM:")) {
-            long id = Long.parseLong(data.substring("APPT_CONFIRM:".length()));
-            DoctorActionRequestDTO req = new DoctorActionRequestDTO();
-            req.setAction(DoctorActionType.CONFIRM);
-            AppointmentDTO a = booking.doctorAction(id, req);
-            telegram.sendText(chatId, "Подтверждено. Запись #" + a.getId());
-            return;
-        }
+        try {
+            if (data.startsWith("APPT_CONFIRM:")) {
+                long id = Long.parseLong(data.substring("APPT_CONFIRM:".length()));
+                DoctorActionRequestDTO req = new DoctorActionRequestDTO();
+                req.setAction(DoctorActionType.CONFIRM);
+                AppointmentDTO a = booking.doctorAction(id, req);
+                telegram.sendText(chatId, "Подтверждено. Запись #" + a.getId());
+                return;
+            }
 
-        if (data.startsWith("APPT_DECLINE:")) {
-            long id = Long.parseLong(data.substring("APPT_DECLINE:".length()));
-            DoctorPendingAction p = new DoctorPendingAction();
-            p.setType(DoctorPendingType.DECLINE_REASON);
-            p.setAppointmentId(id);
-            doctorPending.put(chatId, p);
-            telegram.sendText(chatId, "Введите причину отказа или отправьте /skip");
-            return;
-        }
+            if (data.startsWith("APPT_DECLINE:")) {
+                long id = Long.parseLong(data.substring("APPT_DECLINE:".length()));
+                DoctorPendingAction p = new DoctorPendingAction();
+                p.setType(DoctorPendingType.DECLINE_REASON);
+                p.setAppointmentId(id);
+                doctorPending.put(chatId, p);
+                telegram.sendText(chatId, "Введите причину отказа или отправьте /skip");
+                return;
+            }
 
-        if (data.startsWith("APPT_RESCHEDULE:")) {
-            long id = Long.parseLong(data.substring("APPT_RESCHEDULE:".length()));
-            DoctorPendingAction p = new DoctorPendingAction();
-            p.setType(DoctorPendingType.RESCHEDULE_TIME);
-            p.setAppointmentId(id);
-            doctorPending.put(chatId, p);
-            telegram.sendText(chatId, "Введите новое время: " + TIME_PATTERN_HINT + " или отправьте /any");
-            return;
-        }
+            if (data.startsWith("APPT_RESCHEDULE:")) {
+                long id = Long.parseLong(data.substring("APPT_RESCHEDULE:".length()));
+                DoctorPendingAction p = new DoctorPendingAction();
+                p.setType(DoctorPendingType.RESCHEDULE_TIME);
+                p.setAppointmentId(id);
+                doctorPending.put(chatId, p);
+                telegram.sendText(chatId, "Введите новое время: " + TIME_PATTERN_HINT + " или отправьте /any");
+                return;
+            }
 
-        if (data.startsWith("APPT_CANCEL:")) {
-            long id = Long.parseLong(data.substring("APPT_CANCEL:".length()));
-            DoctorPendingAction p = new DoctorPendingAction();
-            p.setType(DoctorPendingType.CANCEL_REASON);
-            p.setAppointmentId(id);
-            doctorPending.put(chatId, p);
-            telegram.sendText(chatId, "Введите причину отмены или отправьте /skip");
+            if (data.startsWith("APPT_CANCEL:")) {
+                long id = Long.parseLong(data.substring("APPT_CANCEL:".length()));
+                DoctorPendingAction p = new DoctorPendingAction();
+                p.setType(DoctorPendingType.CANCEL_REASON);
+                p.setAppointmentId(id);
+                doctorPending.put(chatId, p);
+                telegram.sendText(chatId, "Введите причину отмены или отправьте /skip");
+            }
+        } catch (ServiceUnavailableException ex) {
+            telegram.sendText(chatId, "booking-service недоступен. Попробуйте позже.");
+        } catch (BookingClientException ex) {
+            telegram.sendText(chatId, "Ошибка: " + ex.getMessage());
+        } catch (Exception ex) {
+            telegram.sendText(chatId, "Ошибка обработки команды. Попробуйте ещё раз.");
         }
     }
 
@@ -109,16 +116,16 @@ public class BotFlowService {
             }
 
             if (text.toLowerCase(Locale.ROOT).startsWith("/cancel")) {
-                beginCancelByCommand(chatId, text);
+                cancelByCommand(chatId, text);
                 return;
             }
 
             if ("/start".equalsIgnoreCase(text)) {
-                telegram.sendText(chatId, "Команды:\n/schedule\n/cancel <id>\n(кнопки по заявкам приходят автоматически)");
+                telegram.sendText(chatId, "Команды:\n/schedule\n/cancel <id> <reason|/skip>\n(кнопки по заявкам приходят автоматически)");
                 return;
             }
 
-            telegram.sendText(chatId, "Для расписания: /schedule. Для отмены: /cancel <id>.");
+            telegram.sendText(chatId, "Для расписания: /schedule. Для отмены: /cancel <id> <reason|/skip>.");
             return;
         }
 
@@ -180,23 +187,28 @@ public class BotFlowService {
         LocalDateTime to = from.plusDays(7);
 
         try {
-            var items = booking.getSchedule(from.format(ISO), to.format(ISO));
+            List<AppointmentDTO> items = booking.getSchedule(from.format(ISO), to.format(ISO));
             if (items == null || items.isEmpty()) {
-                telegram.sendText(doctorChatId, "Расписание пустое на ближайшие 7 дней.");
+                telegram.sendText(doctorChatId, "Расписание пустое: сейчас – +7 дней.");
                 return;
             }
 
-            telegram.sendText(doctorChatId, "Записей найдено: " + items.size() + ". Ниже – каждая запись отдельным сообщением.");
+            List<AppointmentDTO> sorted = new ArrayList<>(items);
+            sorted.sort(Comparator.comparing(this::sortKeyTime, Comparator.nullsLast(Comparator.naturalOrder())));
 
-            for (AppointmentDTO a : items) {
+            List<String> lines = new ArrayList<>();
+            for (AppointmentDTO a : sorted) {
                 if (a == null || a.getId() == null) continue;
-                String line = formatScheduleLine(a);
-                if (isFinalStatus(a.getStatus())) {
-                    telegram.sendText(doctorChatId, line);
-                } else {
-                    telegram.sendText(doctorChatId, line, KeyboardFactory.cancelAppointment(a.getId()));
-                }
+                lines.add(formatScheduleLineOneLine(a));
             }
+
+            if (lines.isEmpty()) {
+                telegram.sendText(doctorChatId, "Расписание пустое: сейчас – +7 дней.");
+                return;
+            }
+
+            sendLinesChunked(doctorChatId, lines);
+
         } catch (ServiceUnavailableException ex) {
             telegram.sendText(doctorChatId, "booking-service недоступен. Попробуйте позже.");
         } catch (BookingClientException ex) {
@@ -204,23 +216,42 @@ public class BotFlowService {
         }
     }
 
-    private String formatScheduleLine(AppointmentDTO a) {
-        String time = formatTime(a.getAppointmentTime());
-        String st = a.getStatus() == null ? "UNKNOWN" : a.getStatus();
-        String name = a.getPatientName() == null ? "" : a.getPatientName();
-        String phone = a.getPhone() == null ? "" : a.getPhone();
+    private LocalDateTime sortKeyTime(AppointmentDTO a) {
+        String raw = pickDisplayTimeRaw(a);
+        if (raw == null) return null;
+        try {
+            return LocalDateTime.parse(raw, ISO);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("#").append(a.getId()).append("\n");
-        sb.append(time).append("\n");
-        sb.append(st).append("\n");
-        if (!name.isBlank()) sb.append(name).append("\n");
-        if (!phone.isBlank()) sb.append(phone).append("\n");
-        return sb.toString().trim();
+    private String formatScheduleLineOneLine(AppointmentDTO a) {
+        String time = formatTime(pickDisplayTimeRaw(a));
+        String st = normalizeStatus(a.getStatus());
+        String name = (a.getPatientName() == null || a.getPatientName().isBlank()) ? "неизвестно" : a.getPatientName();
+
+        return "#" + a.getId()
+                + " – " + time
+                + " – " + name
+                + " – " + st;
+    }
+
+    private String normalizeStatus(String st) {
+        if (st == null || st.isBlank()) return "UNKNOWN";
+        return st.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String pickDisplayTimeRaw(AppointmentDTO a) {
+        String st = normalizeStatus(a.getStatus());
+        if ("RESCHEDULE_PROPOSED".equals(st) && a.getRescheduleProposedTime() != null && !a.getRescheduleProposedTime().isBlank()) {
+            return a.getRescheduleProposedTime();
+        }
+        return a.getAppointmentTime();
     }
 
     private String formatTime(String raw) {
-        if (raw == null) return "Время: неизвестно";
+        if (raw == null) return "время неизвестно";
         try {
             LocalDateTime dt = LocalDateTime.parse(raw, ISO);
             return dt.format(HUMAN);
@@ -229,25 +260,60 @@ public class BotFlowService {
         }
     }
 
-    private boolean isFinalStatus(String st) {
-        if (st == null) return false;
-        String u = st.toUpperCase(Locale.ROOT);
-        return u.equals("DECLINED") || u.equals("CANCELLED") || u.equals("CANCELED") || u.equals("CONFIRMED_CANCELLED");
+    private void sendLinesChunked(Long chatId, List<String> lines) {
+        String header = "Расписание (сейчас – +7 дней):";
+        StringBuilder sb = new StringBuilder(header);
+
+        for (String line : lines) {
+            String next = "\n" + line;
+            if (sb.length() + next.length() > 3500) {
+                telegram.sendText(chatId, sb.toString());
+                sb = new StringBuilder(header);
+            }
+            sb.append(next);
+        }
+
+        if (sb.length() > header.length()) {
+            telegram.sendText(chatId, sb.toString());
+        }
     }
 
-    private void beginCancelByCommand(Long doctorChatId, String text) {
+    private void cancelByCommand(Long doctorChatId, String text) {
         String[] parts = text.split("\\s+");
         if (parts.length < 2) {
-            telegram.sendText(doctorChatId, "Формат: /cancel <id>");
+            telegram.sendText(doctorChatId, "Формат: /cancel <id> <reason|/skip>");
             return;
         }
+
         long id;
         try {
             id = Long.parseLong(parts[1].trim());
         } catch (Exception e) {
-            telegram.sendText(doctorChatId, "id должен быть числом. Формат: /cancel <id>");
+            telegram.sendText(doctorChatId, "id должен быть числом. Формат: /cancel <id> <reason|/skip>");
             return;
         }
+
+        String reason = null;
+        if (parts.length >= 3) {
+            reason = String.join(" ", java.util.Arrays.copyOfRange(parts, 2, parts.length)).trim();
+            if ("/skip".equalsIgnoreCase(reason)) {
+                reason = null;
+            }
+        }
+
+        if (reason != null && !reason.isBlank()) {
+            try {
+                cancelNowAndNotify(doctorChatId, id, reason);
+            } catch (ServiceUnavailableException ex) {
+                telegram.sendText(doctorChatId, "booking-service недоступен. Попробуйте позже.");
+            } catch (BookingClientException ex) {
+                telegram.sendText(doctorChatId, ex.getMessage());
+            } catch (Exception ex) {
+                telegram.sendText(doctorChatId, "Ошибка обработки отмены. Попробуйте ещё раз.");
+            }
+            return;
+        }
+
         DoctorPendingAction p = new DoctorPendingAction();
         p.setType(DoctorPendingType.CANCEL_REASON);
         p.setAppointmentId(id);
@@ -259,53 +325,70 @@ public class BotFlowService {
         DoctorPendingAction p = doctorPending.get(doctorChatId);
         if (p == null) return false;
 
-        if (p.getType() == DoctorPendingType.DECLINE_REASON) {
-            String reason = "/skip".equalsIgnoreCase(text) ? null : text;
-            DoctorActionRequestDTO req = new DoctorActionRequestDTO();
-            req.setAction(DoctorActionType.DECLINE);
-            req.setReason(reason);
-            AppointmentDTO a = booking.doctorAction(p.getAppointmentId(), req);
-            doctorPending.remove(doctorChatId);
-            telegram.sendText(doctorChatId, "Отклонено. Запись #" + a.getId());
-            return true;
-        }
-
-        if (p.getType() == DoctorPendingType.RESCHEDULE_TIME) {
-            DoctorActionRequestDTO req = new DoctorActionRequestDTO();
-            req.setAction(DoctorActionType.RESCHEDULE);
-            if (!"/any".equalsIgnoreCase(text)) {
-                req.setProposedTime(text);
+        try {
+            if (p.getType() == DoctorPendingType.DECLINE_REASON) {
+                String reason = "/skip".equalsIgnoreCase(text) ? null : text;
+                DoctorActionRequestDTO req = new DoctorActionRequestDTO();
+                req.setAction(DoctorActionType.DECLINE);
+                req.setReason(reason);
+                AppointmentDTO a = booking.doctorAction(p.getAppointmentId(), req);
+                doctorPending.remove(doctorChatId);
+                telegram.sendText(doctorChatId, "Отклонено. Запись #" + a.getId());
+                return true;
             }
-            AppointmentDTO a = booking.doctorAction(p.getAppointmentId(), req);
-            doctorPending.remove(doctorChatId);
-            telegram.sendText(doctorChatId, "Отправлено пациенту. Запись #" + a.getId());
-            return true;
-        }
 
-        if (p.getType() == DoctorPendingType.CANCEL_REASON) {
-            String reason = "/skip".equalsIgnoreCase(text) ? null : text;
-
-            CancelAppointmentRequestDTO req = new CancelAppointmentRequestDTO();
-            req.setReason(reason);
-
-            AppointmentDTO a = booking.cancelAppointment(p.getAppointmentId(), req);
-            doctorPending.remove(doctorChatId);
-
-            telegram.sendText(doctorChatId, "Отменено. Запись #" + a.getId());
-
-            if (a.getPatientTelegramChatId() != null) {
-                String time = formatTime(a.getAppointmentTime());
-                StringBuilder sb = new StringBuilder();
-                sb.append("Врач отменил запись ").append(time).append(".");
-                if (reason != null && !reason.isBlank()) {
-                    sb.append("\nПричина: ").append(reason);
+            if (p.getType() == DoctorPendingType.RESCHEDULE_TIME) {
+                DoctorActionRequestDTO req = new DoctorActionRequestDTO();
+                req.setAction(DoctorActionType.RESCHEDULE);
+                if (!"/any".equalsIgnoreCase(text)) {
+                    req.setProposedTime(text);
                 }
-                telegram.sendText(a.getPatientTelegramChatId(), sb.toString());
+                AppointmentDTO a = booking.doctorAction(p.getAppointmentId(), req);
+                doctorPending.remove(doctorChatId);
+                telegram.sendText(doctorChatId, "Отправлено пациенту. Запись #" + a.getId());
+                return true;
             }
+
+            if (p.getType() == DoctorPendingType.CANCEL_REASON) {
+                String reason = "/skip".equalsIgnoreCase(text) ? null : text;
+                cancelNowAndNotify(doctorChatId, p.getAppointmentId(), reason);
+                doctorPending.remove(doctorChatId);
+                return true;
+            }
+
+            return false;
+
+        } catch (ServiceUnavailableException ex) {
+            telegram.sendText(doctorChatId, "booking-service недоступен. Попробуйте позже.");
+            return true;
+        } catch (BookingClientException ex) {
+            telegram.sendText(doctorChatId, "Ошибка: " + ex.getMessage());
+            doctorPending.remove(doctorChatId);
+            return true;
+        } catch (Exception ex) {
+            telegram.sendText(doctorChatId, "Ошибка обработки. Попробуйте ещё раз.");
+            doctorPending.remove(doctorChatId);
             return true;
         }
+    }
 
-        return false;
+    private void cancelNowAndNotify(Long doctorChatId, long appointmentId, String reason) {
+        CancelAppointmentRequestDTO req = new CancelAppointmentRequestDTO();
+        req.setReason(reason);
+
+        AppointmentDTO a = booking.cancelAppointment(appointmentId, req);
+
+        telegram.sendText(doctorChatId, "Отменено. Запись #" + a.getId());
+
+        if (a.getPatientTelegramChatId() != null) {
+            String time = formatTime(pickDisplayTimeRaw(a));
+            StringBuilder sb = new StringBuilder();
+            sb.append("Врач отменил запись ").append(time).append(".");
+            if (reason != null && !reason.isBlank()) {
+                sb.append("\nПричина: ").append(reason);
+            }
+            telegram.sendText(a.getPatientTelegramChatId(), sb.toString());
+        }
     }
 
     private void createAppointment(Long chatId, PatientSession s, String timeText) {

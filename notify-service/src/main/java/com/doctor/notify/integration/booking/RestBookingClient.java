@@ -1,7 +1,8 @@
 package com.doctor.notify.integration.booking;
 
 import com.doctor.notify.integration.booking.dto.*;
-import lombok.RequiredArgsConstructor;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
@@ -16,6 +17,8 @@ import java.util.List;
 
 @Component
 public class RestBookingClient implements BookingClient {
+
+    private static final ObjectMapper OM = new ObjectMapper();
 
     private final RestTemplate rest;
 
@@ -120,15 +123,50 @@ public class RestBookingClient implements BookingClient {
     }
 
     private BookingClientException mapHttp(HttpStatusCodeException ex) {
+        String raw = ex.getResponseBodyAsString();
+        String code = null;
+        String msg = null;
+
+        try {
+            if (raw != null && !raw.isBlank()) {
+                JsonNode root = OM.readTree(raw);
+                code = textOrNull(root, "error");
+                msg = textOrNull(root, "message");
+            }
+        } catch (Exception ignored) {
+            // если тело не JSON – живём дальше
+        }
+
+        String fallback = "Ошибка booking-service: " + ex.getStatusCode().value();
+        String message = (msg == null || msg.isBlank()) ? fallback : msg;
+
+        if (ex.getStatusCode().is5xxServerError()) {
+            return new ServiceUnavailableException(message, ex);
+        }
+
         if (ex.getStatusCode() == HttpStatus.CONFLICT) {
-            return new SlotUnavailableException("Действие невозможно (конфликт статуса/время занято)");
+            if ("SLOT_UNAVAILABLE".equalsIgnoreCase(code)) {
+                return new SlotUnavailableException(message);
+            }
+            return new BookingClientException(message);
         }
+
         if (ex.getStatusCode() == HttpStatus.BAD_REQUEST) {
-            return new BadRequestException("Неверные данные запроса");
+            return new BadRequestException(message);
         }
+
         if (ex.getStatusCode() == HttpStatus.NOT_FOUND) {
-            return new BookingClientException("Запись не найдена");
+            return new BookingClientException(message);
         }
-        return new BookingClientException("Ошибка booking-service: " + ex.getStatusCode().value());
+
+        return new BookingClientException(message);
+    }
+
+    private static String textOrNull(JsonNode root, String field) {
+        if (root == null) return null;
+        JsonNode n = root.get(field);
+        if (n == null || n.isNull()) return null;
+        String s = n.asText();
+        return (s == null || s.isBlank()) ? null : s;
     }
 }
