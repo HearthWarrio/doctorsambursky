@@ -50,13 +50,6 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
-        <!-- Spring Vault Core -->
-        <dependency>
-            <groupId>org.springframework.vault</groupId>
-            <artifactId>spring-vault-core</artifactId>
-            <version>${spring.vault.version}</version>
-        </dependency>
-
         <!-- Google Calendar API -->
         <dependency>
             <groupId>com.google.apis</groupId>
@@ -112,6 +105,18 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <version>${spring.boot.version}</version>
+
+                <configuration>
+                    <mainClass>com.doctor.booking.BookingServiceApplication</mainClass>
+                </configuration>
+
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

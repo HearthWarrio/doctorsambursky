@@ -13,10 +13,6 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
-vault:
-  uri: ${VAULT_URI}
-  token: ${VAULT_TOKEN}
-
 internal:
   auth:
     token: ${INTERNAL_AUTH_TOKEN}

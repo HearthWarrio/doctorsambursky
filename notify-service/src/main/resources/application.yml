@@ -1,11 +1,6 @@
 server:
   port: 8083
 
-vault:
-  uri: ${VAULT_URI}
-  token: ${VAULT_TOKEN}
-  path: ${VAULT_PATH:secret/application}
-
 internal:
   auth:
     token: ${INTERNAL_AUTH_TOKEN}
