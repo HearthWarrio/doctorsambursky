@@ -42,4 +42,22 @@ public class Appointment {
 
     @Column(name = "doctor_decision_deadline_at")
     private LocalDateTime doctorDecisionDeadlineAt;
+
+    @Column(name = "reminder_24_sent_at")
+    private LocalDateTime reminder24SentAt;
+
+    @Column(name = "reminder_2h_sent_at")
+    private LocalDateTime reminder2hSentAt;
+
+    @Column(name = "doctor_notified", nullable = false)
+    private boolean doctorNotified;
+
+    @Column(name = "doctor_notified_at")
+    private LocalDateTime doctorNotifiedAt;
+
+    @Column(name = "timeout_decline_notified", nullable = false)
+    private boolean timeoutDeclineNotified;
+
+    @Column(name = "timeout_decline_notified_at")
+    private LocalDateTime timeoutDeclineNotifiedAt;
 }
