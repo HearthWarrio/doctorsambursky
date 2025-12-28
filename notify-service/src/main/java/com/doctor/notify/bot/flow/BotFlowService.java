@@ -1,6 +1,5 @@
 package com.doctor.notify.bot.flow;
 
-import com.doctor.notify.bot.MedBratBot;
 import com.doctor.notify.bot.TelegramSendService;
 import com.doctor.notify.bot.state.*;
 import com.doctor.notify.bot.ui.KeyboardFactory;
@@ -9,6 +8,7 @@ import com.doctor.notify.integration.booking.dto.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.objects.*;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -23,7 +23,9 @@ public class BotFlowService {
     private static final DateTimeFormatter ISO = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
     private static final DateTimeFormatter HUMAN = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm", Locale.US);
 
-    private final MedBratBot bot;
+    @Value("${telegram.doctor.chat-id}")
+    private Long doctorChatId;
+
     private final TelegramSendService telegram;
     private final BookingClient booking;
 
@@ -48,7 +50,7 @@ public class BotFlowService {
         telegram.answerCallback(cq.getId());
 
         Long chatId = cq.getMessage().getChatId();
-        if (!chatId.equals(bot.getDoctorChatId())) {
+        if (!chatId.equals(doctorChatId)) {
             telegram.sendText(chatId, "Эта кнопка не для вас.");
             return;
         }
@@ -107,7 +109,7 @@ public class BotFlowService {
         Long chatId = msg.getChatId();
         String text = msg.getText().trim();
 
-        if (chatId.equals(bot.getDoctorChatId())) {
+        if (chatId.equals(doctorChatId)) {
             if (handleDoctorText(chatId, text)) return;
 
             if ("/schedule".equalsIgnoreCase(text)) {
