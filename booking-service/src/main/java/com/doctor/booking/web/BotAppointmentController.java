@@ -23,17 +23,19 @@ public class BotAppointmentController {
     }
 
     @PostMapping("/{id}/doctor-action")
-    public ResponseEntity<AppointmentDTO> doctorAction(@PathVariable long id, @Valid @RequestBody DoctorActionRequestDTO req) {
+    public ResponseEntity<AppointmentDTO> doctorAction(@PathVariable("id") long id,
+                                                       @Valid @RequestBody DoctorActionRequestDTO req) {
         return ResponseEntity.ok(appointmentService.doctorAction(id, req));
     }
 
     @PostMapping("/{id}/patient-reschedule")
-    public ResponseEntity<AppointmentDTO> patientReschedule(@PathVariable long id, @Valid @RequestBody PatientRescheduleRequestDTO req) {
+    public ResponseEntity<AppointmentDTO> patientReschedule(@PathVariable("id") long id,
+                                                            @Valid @RequestBody PatientRescheduleRequestDTO req) {
         return ResponseEntity.ok(appointmentService.patientReschedule(id, req));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<AppointmentDTO> get(@PathVariable long id) {
+    public ResponseEntity<AppointmentDTO> get(@PathVariable("id") long id) {
         return ResponseEntity.ok(appointmentService.getForBot(id));
     }
 }
